@@ -8,6 +8,18 @@ function local_setup {
 	export __bp_enable_subshells=yas
 }
 
+# PROMPT_COMMAND is an array on Bash >= 5.1 and a string before that;
+# join its elements with newlines so one expectation covers both.
+function prompt_command_joined() {
+	local joined
+	printf -v joined '%s\n' "${PROMPT_COMMAND[@]}"
+	printf '%s' "${joined%$'\n'}"
+}
+
+function bash_has_array_prompt_command() {
+	((BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1)))
+}
+
 @test "vendor preexec: __bp_install_after_session_init() without existing" {
 	test_prompt_string=""
 	export PROMPT_COMMAND="$test_prompt_string"
@@ -16,7 +28,12 @@ function local_setup {
 	assert_success
 	load ../../vendor/github.com/rcaloras/bash-preexec/bash-preexec.sh
 
-	assert_equal "${PROMPT_COMMAND}" $'__bp_trap_string="$(trap -p DEBUG)"\ntrap - DEBUG\n__bp_install'
+	if bash_has_array_prompt_command; then
+		# the empty original element stays in front of the appended install hook
+		assert_equal "$(prompt_command_joined)" $'\n'"${__bp_install_string?}"
+	else
+		assert_equal "$(prompt_command_joined)" "${__bp_install_string?}"
+	fi
 }
 
 @test "vendor preexec: __bp_install_after_session_init() with existing" {
@@ -27,7 +44,7 @@ function local_setup {
 	assert_success
 	load ../../vendor/github.com/rcaloras/bash-preexec/bash-preexec.sh
 
-	assert_equal "${PROMPT_COMMAND}" "$test_prompt_string"$'\n__bp_trap_string="$(trap -p DEBUG)"\ntrap - DEBUG\n__bp_install'
+	assert_equal "$(prompt_command_joined)" "$test_prompt_string"$'\n'"${__bp_install_string?}"
 }
 
 @test "vendor preexec: __bp_install_after_session_init() delayed" {
@@ -45,7 +62,7 @@ function local_setup {
 	assert_success
 
 	__bp_install_after_session_init
-	assert_equal "${PROMPT_COMMAND}" "$test_prompt_string"$'\n__bp_trap_string="$(trap -p DEBUG)"\ntrap - DEBUG\n__bp_install'
+	assert_equal "$(prompt_command_joined)" "$test_prompt_string"$'\n'"${__bp_install_string?}"
 }
 
 @test "vendor preexec: __bp_install() without existing" {
@@ -60,11 +77,7 @@ function local_setup {
 	assert_success
 
 	__bp_install
-	if ((BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1))); then
-		assert_equal "${PROMPT_COMMAND[*]}" $'__bp_precmd_invoke_cmd __bp_interactive_mode'
-	else
-		assert_equal "${PROMPT_COMMAND}" $'__bp_precmd_invoke_cmd\n__bp_interactive_mode'
-	fi
+	assert_equal "$(prompt_command_joined)" $'__bp_precmd_invoke_cmd "$_"\n__bp_interactive_mode'
 }
 
 @test "vendor preexec: __bp_install() with existing" {
@@ -79,11 +92,7 @@ function local_setup {
 	assert_success
 
 	__bp_install
-	if ((BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1))); then
-		assert_equal "${PROMPT_COMMAND[*]}" $'__bp_precmd_invoke_cmd\n'"$test_prompt_string"$'\n: __bp_interactive_mode'
-	else
-		assert_equal "${PROMPT_COMMAND}" $'__bp_precmd_invoke_cmd\n'"$test_prompt_string"$'\n:\n__bp_interactive_mode'
-	fi
+	assert_equal "$(prompt_command_joined)" $'__bp_precmd_invoke_cmd "$_"\n'"$test_prompt_string"$'\n__bp_interactive_mode'
 }
 
 @test "lib preexec: __bp_require_not_readonly()" {
