@@ -13,6 +13,7 @@ function _bash-it-component-completion-callback-on-init-aliases() {
 	local tmp_file completion_loader alias_name line completions chars
 	local alias_arg_words new_completion compl_func compl_wrapper alias_defn
 	local alias_cmd_quoted alias_args_quoted
+	local _bi_alias_completion_loader
 
 	# create array of function completion triggers, keeping multi-word triggers together
 	IFS=$'\n' read -d '' -ra completions < <(complete -p)
@@ -33,6 +34,29 @@ function _bash-it-component-completion-callback-on-init-aliases() {
 	else
 		completion_loader=""
 	fi
+
+	# The "force loading" call further down relies on the bash-completion
+	# dynamic-loader protocol: the handler registers a completion for the command
+	# and returns 124 so bash retries. Not every -D handler follows that protocol.
+	# argcomplete's global hook installs itself as -D and *performs* completion
+	# instead, which means executing the aliased command. Called from here -- at
+	# shell startup, where bash has set neither COMP_LINE nor COMP_POINT -- it runs
+	# every aliased argcomplete-enabled program with COMP_POINT exported as the
+	# empty string, and some of them abort on it (ipython via traitlets does).
+	# So only ever call a handler known to implement the loader protocol; if the
+	# -D slot holds something else, fall back to bash-completion's own loader.
+	case "${completion_loader}" in
+		_comp_complete_load | _completion_loader) ;;
+		*)
+			completion_loader=""
+			for _bi_alias_completion_loader in _comp_complete_load _completion_loader; do
+				if _is_function "${_bi_alias_completion_loader}"; then
+					completion_loader="${_bi_alias_completion_loader}"
+					break
+				fi
+			done
+			;;
+	esac
 
 	# read in "<alias> '<aliased command>' '<command args>'" lines from defined aliases
 	# some aliases do have backslashes that needs to be interpreted
