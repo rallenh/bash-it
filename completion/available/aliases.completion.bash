@@ -9,7 +9,7 @@ about-plugin 'Automatic completion of aliases'
 
 # Automatically add completion for all aliases to commands having completion functions
 function _bash-it-component-completion-callback-on-init-aliases() {
-	local aliasCommandFunction namespace="alias_completion"
+	local aliasCommandFunction existing_completion alias_arg_words_quoted namespace="alias_completion"
 	local tmp_file completion_loader alias_name line completions chars
 	local alias_arg_words new_completion compl_func compl_wrapper alias_defn
 	local alias_cmd_quoted alias_args_quoted
@@ -70,9 +70,13 @@ function _bash-it-component-completion-callback-on-init-aliases() {
 		# This allows users to define their own alias completion functions.
 		# For aliases added by this script, we do want to replace them in case the
 		# alias getting the completion added has changed.
-		if complete -p "$alias_name" &> /dev/null; then
-			# Get the -F argument from the existing completion for this alias.
-			aliasCommandFunction=$(complete -p "$alias_name" | rev | cut -d " " -f 2 | rev)
+		# This runs once per alias at startup, so avoid extra processes: one
+		# subshell for `complete -p`, then plain parameter expansion.
+		if existing_completion="$(complete -p "$alias_name" 2> /dev/null)"; then
+			# Get the -F argument from the existing completion for this alias
+			# (the second-to-last space-separated word).
+			aliasCommandFunction="${existing_completion% *}"
+			aliasCommandFunction="${aliasCommandFunction##* }"
 			# Check if aliasCommandFunction starts with our namespace.
 			if [[ "$aliasCommandFunction" != "_${namespace}::"* ]]; then
 				continue
@@ -133,8 +137,10 @@ function _bash-it-component-completion-callback-on-init-aliases() {
 				# alias_cmd and alias_args can themselves contain shell-special characters
 				# (e.g. an unescaped single quote), so they are also run through printf %q
 				# before being embedded below, otherwise they can generate invalid code.
-				alias_cmd_quoted="$(printf '%q' "$alias_cmd")"
-				alias_args_quoted="$(printf '%q' "$alias_args")"
+				# printf -v instead of $(printf ...) avoids a subshell per alias.
+				printf -v alias_cmd_quoted '%q' "$alias_cmd"
+				printf -v alias_args_quoted '%q' "$alias_args"
+				printf -v alias_arg_words_quoted '%q ' "${alias_arg_words[@]}"
 				echo "function $compl_wrapper {
                         local compl_word=\${2?}
                         local prec_word=\${3?}
@@ -146,7 +152,7 @@ function _bash-it-component-completion-callback-on-init-aliases() {
                             prec_word=\${prec_word#* }
                         fi
                         (( COMP_CWORD += ${#alias_arg_words[@]} ))
-                        COMP_WORDS=($alias_cmd_quoted $(printf "%q " "${alias_arg_words[@]}") \"\${COMP_WORDS[@]:1}\")
+                        COMP_WORDS=($alias_cmd_quoted $alias_arg_words_quoted \"\${COMP_WORDS[@]:1}\")
                         (( COMP_POINT -= \${#COMP_LINE} ))
                         COMP_LINE=\${COMP_LINE/$alias_name/$alias_cmd_quoted' '$alias_args_quoted}
                         (( COMP_POINT += \${#COMP_LINE} ))

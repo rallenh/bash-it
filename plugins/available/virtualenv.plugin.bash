@@ -7,7 +7,9 @@ url "https://virtualenvwrapper.readthedocs.io/"
 about-plugin 'virtualenvwrapper and pyenv-virtualenvwrapper helper functions'
 
 # Check for whole command instead of just pyenv
-if [ -n "$(command pyenv virtualenvwrapper --help 2> /dev/null)" ]; then
+# (_command_exists first: running a missing pyenv triggers the slow
+# command_not_found_handle, e.g. PackageKit on Fedora)
+if _command_exists pyenv && [ -n "$(command pyenv virtualenvwrapper --help 2> /dev/null)" ]; then
 	pyenv virtualenvwrapper
 elif _command_exists virtualenvwrapper.sh; then
 	# shellcheck disable=SC1091
