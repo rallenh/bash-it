@@ -8,16 +8,11 @@ function local_setup {
 	export __bp_enable_subshells=yas
 }
 
-# PROMPT_COMMAND is an array on Bash >= 5.1 and a string before that;
-# join its elements with newlines so one expectation covers both.
-function prompt_command_joined() {
-	local joined
-	printf -v joined '%s\n' "${PROMPT_COMMAND[@]}"
-	printf '%s' "${joined%$'\n'}"
-}
-
-function bash_has_array_prompt_command() {
-	((BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1)))
+# PROMPT_COMMAND is an array in Bash >= 5.1 and a scalar before; join with newlines to compare either
+function prompt_command_lines() {
+	local IFS=$'\n' lines
+	lines="${PROMPT_COMMAND[*]}"
+	printf '%s' "${lines#$'\n'}"
 }
 
 @test "vendor preexec: __bp_install_after_session_init() without existing" {
@@ -28,12 +23,8 @@ function bash_has_array_prompt_command() {
 	assert_success
 	load ../../vendor/github.com/rcaloras/bash-preexec/bash-preexec.sh
 
-	if bash_has_array_prompt_command; then
-		# the empty original element stays in front of the appended install hook
-		assert_equal "$(prompt_command_joined)" $'\n'"${__bp_install_string?}"
-	else
-		assert_equal "$(prompt_command_joined)" "${__bp_install_string?}"
-	fi
+	# shellcheck disable=SC2016
+	assert_equal "$(prompt_command_lines)" '__bp_install "$_"'
 }
 
 @test "vendor preexec: __bp_install_after_session_init() with existing" {
@@ -44,7 +35,8 @@ function bash_has_array_prompt_command() {
 	assert_success
 	load ../../vendor/github.com/rcaloras/bash-preexec/bash-preexec.sh
 
-	assert_equal "$(prompt_command_joined)" "$test_prompt_string"$'\n'"${__bp_install_string?}"
+	# shellcheck disable=SC2016
+	assert_equal "$(prompt_command_lines)" "$test_prompt_string"$'\n__bp_install "$_"'
 }
 
 @test "vendor preexec: __bp_install_after_session_init() delayed" {
@@ -62,7 +54,8 @@ function bash_has_array_prompt_command() {
 	assert_success
 
 	__bp_install_after_session_init
-	assert_equal "$(prompt_command_joined)" "$test_prompt_string"$'\n'"${__bp_install_string?}"
+	# shellcheck disable=SC2016
+	assert_equal "$(prompt_command_lines)" "$test_prompt_string"$'\n__bp_install "$_"'
 }
 
 @test "vendor preexec: __bp_install() without existing" {
@@ -77,7 +70,8 @@ function bash_has_array_prompt_command() {
 	assert_success
 
 	__bp_install
-	assert_equal "$(prompt_command_joined)" $'__bp_precmd_invoke_cmd "$_"\n__bp_interactive_mode'
+	# shellcheck disable=SC2016
+	assert_equal "$(prompt_command_lines)" $'__bp_precmd_invoke_cmd "$_"\n__bp_interactive_mode'
 }
 
 @test "vendor preexec: __bp_install() with existing" {
@@ -92,7 +86,23 @@ function bash_has_array_prompt_command() {
 	assert_success
 
 	__bp_install
-	assert_equal "$(prompt_command_joined)" $'__bp_precmd_invoke_cmd "$_"\n'"$test_prompt_string"$'\n__bp_interactive_mode'
+	# shellcheck disable=SC2016
+	assert_equal "$(prompt_command_lines)" $'__bp_precmd_invoke_cmd "$_"\n'"$test_prompt_string"$'\n__bp_interactive_mode'
+}
+
+@test "vendor preexec: precmd_functions and preexec_functions are preserved when sourced from a function" {
+	# shellcheck disable=SC2317
+	function source_and_append() {
+		# shellcheck disable=SC1091
+		source "${BATS_TEST_DIRNAME}/../../vendor/github.com/rcaloras/bash-preexec/bash-preexec.sh"
+		precmd_functions+=(test_precmd)
+		preexec_functions+=(test_preexec)
+	}
+
+	source_and_append
+
+	assert_equal "${precmd_functions[*]}" "test_precmd"
+	assert_equal "${preexec_functions[*]}" "test_preexec"
 }
 
 @test "lib preexec: __bp_require_not_readonly()" {
